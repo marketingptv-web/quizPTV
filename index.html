@@ -275,13 +275,13 @@
         const QUIZ_TIME_LIMIT = 20; // seconds
 
         // --- DOM ELEMENTS ---
-        const views = document.querySelectorAll('[data-view]');
         const navLinksContainer = document.getElementById('nav-links');
         const authArea = document.getElementById('auth-area');
 
         // --- CORE APP LOGIC ---
 
         function init() {
+            const views = document.querySelectorAll('[data-view]');// <-- la hemos movido de la 278
             console.log("App initializing...");
             state.webAppUrl = localStorage.getItem('ptvQuizWebAppUrl');
             state.idToken = localStorage.getItem('ptvQuizIdToken');
@@ -1186,3 +1186,4 @@
     </script>
 </body>
 </html>
+
