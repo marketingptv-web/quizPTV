@@ -271,7 +271,7 @@
                 startTime: null,
             },
         };
-
+        let views;
         const QUIZ_TIME_LIMIT = 20; // seconds
 
         // --- DOM ELEMENTS ---
@@ -281,7 +281,7 @@
         // --- CORE APP LOGIC ---
 
         function init() {
-            const views = document.querySelectorAll('[data-view]');// <-- la hemos movido de la 278
+            views = document.querySelectorAll('[data-view]');// <-- la hemos movido de la 278
             console.log("App initializing...");
             state.webAppUrl = localStorage.getItem('ptvQuizWebAppUrl');
             state.idToken = localStorage.getItem('ptvQuizIdToken');
@@ -1186,4 +1186,5 @@
     </script>
 </body>
 </html>
+
 
