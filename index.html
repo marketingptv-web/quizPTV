@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PTV Telecom Quiz</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- El script de Google ya no tiene 'onload' -->
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -249,13 +251,9 @@
         </div>
       </div>
     </div>
-
-    <!-- Google GSI Script -->
-    <script src="https://accounts.google.com/gsi/client" async defer onload="onGoogleScriptLoad()"></script>
     
     <script>
     // --- START OF APP SCRIPT ---
-    // NO envolvimos el código en (function() {}) para que onGoogleScriptLoad sea global
 
     // --- GLOBAL STATE & CONFIG ---
     let state = {
@@ -283,17 +281,23 @@
 
     // --- CORE INITIALIZATION ---
 
-    // Esta función es llamada por el script de Google una vez que se ha cargado
-    function onGoogleScriptLoad() {
-        console.log("Google GSI script loaded.");
-        google.accounts.id.initialize({
-            client_id: '24633684161-2q1p4rd0ng0d170kkrkjkl3d0svk63kb.apps.googleusercontent.com',
-            callback: handleCredentialResponse
-        });
-        console.log("Google GSI initialized.");
-        
-        mainApp();
-    }
+    window.addEventListener("load", () => {
+        console.log("Página cargada, inicializando...");
+        // Pequeño retraso para dar tiempo al script de Google a cargarse completamente
+        setTimeout(() => {
+            if (window.google && google.accounts && google.accounts.id) {
+                google.accounts.id.initialize({
+                    client_id: '24633684161-2q1p4rd0ng0d170kkrkjkl3d0svk63kb.apps.googleusercontent.com',
+                    callback: handleCredentialResponse
+                });
+                console.log("Google GSI initialized.");
+            } else {
+                console.error("Google GSI script not loaded yet.");
+            }
+            mainApp(); // arranca la aplicación de todas formas
+        }, 500); // 500ms de retraso
+    });
+
 
     // La función principal de nuestra aplicación
     function mainApp() {
@@ -317,12 +321,17 @@
     }
 
     function renderGoogleButton() {
-        const btnContainer = document.getElementById("google-signin-button");
-        if (btnContainer) {
-            google.accounts.id.renderButton(
-                btnContainer,
-                { theme: "outline", size: "large" }
-            );
+        if (window.google && google.accounts && google.accounts.id) {
+            const btnContainer = document.getElementById("google-signin-button");
+            if (btnContainer) {
+                google.accounts.id.renderButton(
+                    btnContainer,
+                    { theme: "outline", size: "large" }
+                );
+            }
+        } else {
+            console.log("Google object not ready for button render, will try again shortly.");
+            setTimeout(renderGoogleButton, 500); // Reintenta si Google no está listo
         }
     }
 
@@ -952,7 +961,7 @@
 91. ¿Qué ventaja ofrece este "peering" a los gamers?
     **Respuesta:** Un "ping" (tiempo de respuesta) más bajo, lo que se traduce en una ventaja competitiva en juegos online.
 92. ¿Qué particularidad se menciona sobre las IPs que utiliza Digi?
-    **Respuesta:** Que en gran parte son IPs rumanas, lo que puede afectar a servicios de geolocalización.
+    **Respuesta:** Que en gran parte son IPs rumanas, lo que puede afectar a servicios de geocalización.
 93. **Verdadero o Falso:** PTV subcontrata a otras empresas para las instalaciones y el mantenimiento técnico.
     **Respuesta:** Falso.
 94. ¿Qué lema resume la filosofía de PTV?
