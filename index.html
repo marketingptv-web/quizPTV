@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PTV Telecom Quiz</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://accounts.google.com/gsi/client" async defer></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -251,619 +250,492 @@
       </div>
     </div>
 
-
+    <!-- Google GSI Script -->
+    <script src="https://accounts.google.com/gsi/client" async defer onload="onGoogleScriptLoad()"></script>
+    
     <script>
-    // --- START OF SCRIPT ---
-    (function() {
-        // --- STATE MANAGEMENT ---
-        let state = {
-            idToken: null,
-            webAppUrl: null,
-            userProfile: null,
-            currentView: 'loading',
-            quiz: {
-                questions: [],
-                currentQuestionIndex: 0,
-                score: 0,
-                streak: 0,
-                sessionId: null,
-                timer: null,
-                startTime: null,
-            },
-        };
-        let views; // Variable declarada aquí para ser accesible globalmente dentro del script
+    // --- GLOBAL STATE & CONFIG ---
+    let state = {
+        idToken: null,
+        webAppUrl: null,
+        userProfile: null,
+        currentView: 'loading',
+        quiz: {
+            questions: [],
+            currentQuestionIndex: 0,
+            score: 0,
+            streak: 0,
+            sessionId: null,
+            timer: null,
+            startTime: null,
+        },
+    };
+    let views; 
 
-        const QUIZ_TIME_LIMIT = 20; // seconds
+    const QUIZ_TIME_LIMIT = 20;
 
-        // --- DOM ELEMENTS ---
-        const navLinksContainer = document.getElementById('nav-links');
-        const authArea = document.getElementById('auth-area');
+    // --- DOM ELEMENTS (containers) ---
+    const navLinksContainer = document.getElementById('nav-links');
+    const authArea = document.getElementById('auth-area');
 
-        // --- CORE APP LOGIC ---
+    // --- CORE INITIALIZATION ---
 
-        function init() {
-            views = document.querySelectorAll('[data-view]'); // Asignamos valor cuando el DOM está listo
-            console.log("App initializing...");
-            state.webAppUrl = localStorage.getItem('ptvQuizWebAppUrl');
-            state.idToken = localStorage.getItem('ptvQuizIdToken');
-
-            if (!state.webAppUrl) {
-                showView('config');
-            } else {
-                setupGoogleSignIn();
-                if (state.idToken) {
-                    handleLoginSuccess();
-                } else {
-                    showView('auth');
-                }
-            }
-            addEventListeners();
-        }
-
-        function showView(viewId) {
-            console.log(`Switching to view: ${viewId}`);
-            state.currentView = viewId;
-            views.forEach(view => {
-                if (view.id === `view-${viewId}`) { // Corregido: el id del div es "view-config", no "config"
-                    view.classList.add('view-visible', 'fade-in');
-                } else {
-                    view.classList.remove('view-visible');
-                }
-            });
-            updateNavActiveState(viewId);
-        }
-
-        function setupGoogleSignIn() {
-             google.accounts.id.initialize({
-                client_id: '24633684161-2q1p4rd0ng0d170kkrkjkl3d0svk63kb.apps.googleusercontent.com',
-                callback: handleCredentialResponse
-            });
-            google.accounts.id.renderButton(
-                document.getElementById("google-signin-button"),
-                { theme: "outline", size: "large" }
-            );
-        }
-
-        async function handleCredentialResponse(response) {
-            console.log("Received credential response from Google.");
-            state.idToken = response.credential;
-            localStorage.setItem('ptvQuizIdToken', state.idToken);
-            await handleLoginSuccess();
-        }
-
-        async function handleLoginSuccess() {
-            showView('loading');
-            try {
-                const profile = await fetchAPI('/me');
-                state.userProfile = profile;
-                updateAuthUI();
-
-                if (!profile || !profile.display_name || !profile.delegacion_code || !profile.codigo_comercial) {
-                    console.log("User profile incomplete. Showing profile gate.");
-                    document.getElementById('display-name').value = profile?.display_name || '';
-                    document.getElementById('codigo-comercial').value = profile?.codigo_comercial || '';
-                    document.getElementById('delegacion-code').value = profile?.delegacion_code || '';
-                    showView('profile');
-                } else {
-                    console.log("User profile complete. Welcome!");
-                    document.getElementById('home-username').textContent = profile.display_name;
-                    showView('home');
-                }
-            } catch (error) {
-                console.error("Error fetching user profile:", error);
-                if (error.message.includes('401')) {
-                    alert('Error de autenticación. Es posible que no pertenezcas al dominio permitido (@ptvtelecom.com).');
-                    logout();
-                } else {
-                    alert('Error al contactar con el servidor. Revisa la URL de la Web App en Configuración.');
-                    showView('config');
-                }
-            }
-        }
+    // Esta función es llamada por el script de Google una vez que se ha cargado
+    // La hacemos global para que el atributo onload la encuentre.
+    function onGoogleScriptLoad() {
+        console.log("Google GSI script loaded.");
+        google.accounts.id.initialize({
+            client_id: '24633684161-2q1p4rd0ng0d170kkrkjkl3d0svk63kb.apps.googleusercontent.com',
+            callback: handleCredentialResponse
+        });
+        console.log("Google GSI initialized.");
         
-        function updateAuthUI() {
-            navLinksContainer.innerHTML = '';
-            authArea.innerHTML = '';
-            
-            if (state.userProfile) {
-                const links = [
-                    { id: 'home', text: 'Inicio' },
-                    { id: 'play-start', text: 'Jugar' },
-                    { id: 'leaderboard', text: 'Ranking' },
-                ];
-                if (state.userProfile.rol === 'admin' || state.userProfile.rol === 'supervisor') {
-                    links.push({ id: 'admin', text: 'Admin' });
-                }
-                links.push({ id: 'config', text: 'Config' });
-                
-                links.forEach(link => {
-                    const a = document.createElement('a');
-                    a.href = '#';
-                    a.dataset.view = link.id;
-                    a.textContent = link.text;
-                    a.className = 'text-gray-500 hover:bg-gray-100 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium nav-link';
-                    a.addEventListener('click', (e) => {
-                        e.preventDefault();
-                        navigateTo(link.id);
-                    });
-                    navLinksContainer.appendChild(a);
-                });
-                
-                authArea.innerHTML = `
-                    <span class="text-sm text-gray-600">${state.userProfile.auth_email}</span>
-                    <button id="logout-btn" class="bg-red-500 text-white px-3 py-1 rounded-md text-sm font-medium hover:bg-red-600">Salir</button>
-                `;
-                document.getElementById('logout-btn').addEventListener('click', logout);
+        mainApp();
+    }
 
-            }
-        }
-        
-        function updateNavActiveState(viewId) {
-            document.querySelectorAll('.nav-link').forEach(link => {
-                if(link.dataset.view === viewId) {
-                    link.classList.add('bg-gray-200', 'text-gray-900');
-                    link.classList.remove('text-gray-500');
-                } else {
-                    link.classList.remove('bg-gray-200', 'text-gray-900');
-                    link.classList.add('text-gray-500');
-                }
-            });
-        }
-        
-        async function navigateTo(viewId) {
-            switch(viewId) {
-                case 'leaderboard':
-                    await loadLeaderboard();
-                    break;
-                // other views might need data loading here
-            }
-            showView(viewId);
-        }
+    // La función principal de nuestra aplicación
+    function mainApp() {
+        views = document.querySelectorAll('[data-view]');
 
-        function logout() {
-            console.log("Logging out.");
-            state.idToken = null;
-            state.userProfile = null;
-            localStorage.removeItem('ptvQuizIdToken');
-            google.accounts.id.disableAutoSelect();
-            // We don't reload to allow user to see they are logged out.
-            authArea.innerHTML = '';
-            navLinksContainer.innerHTML = '';
-            showView('auth');
-        }
+        console.log("App initializing...");
+        state.webAppUrl = localStorage.getItem('ptvQuizWebAppUrl');
+        state.idToken = localStorage.getItem('ptvQuizIdToken');
 
-        // --- API CLIENT ---
-        async function fetchAPI(endpoint, options = {}) {
-            const url = `${state.webAppUrl}?path=${endpoint.substring(1)}`;
-            const headers = {
-                'Content-Type': 'application/json',
-                ...options.headers,
-            };
+        if (!state.webAppUrl) {
+            showView('config');
+        } else {
             if (state.idToken) {
-                headers['Authorization'] = `Bearer ${state.idToken}`;
+                handleLoginSuccess();
+            } else {
+                showView('auth');
+                google.accounts.id.renderButton(
+                    document.getElementById("google-signin-button"),
+                    { theme: "outline", size: "large" }
+                );
             }
+        }
+        addEventListeners();
+    }
 
-            const config = {
-                method: options.method || 'GET',
-                headers,
-                body: options.body ? JSON.stringify(options.body) : null,
-                redirect: 'follow',
-                mode: 'cors',
-            };
+    function showView(viewId) {
+        console.log(`Switching to view: ${viewId}`);
+        state.currentView = viewId;
+        views.forEach(view => {
+            if (view.id === `view-${viewId}`) {
+                view.classList.add('view-visible', 'fade-in');
+            } else {
+                view.classList.remove('view-visible');
+            }
+        });
+        updateNavActiveState(viewId);
+    }
+
+    async function handleCredentialResponse(response) {
+        console.log("Received credential response from Google.");
+        state.idToken = response.credential;
+        localStorage.setItem('ptvQuizIdToken', state.idToken);
+        await handleLoginSuccess();
+    }
+
+    async function handleLoginSuccess() {
+        showView('loading');
+        try {
+            const profile = await fetchAPI('/me');
+            state.userProfile = profile;
+            updateAuthUI();
+
+            if (!profile || !profile.display_name || !profile.delegacion_code || !profile.codigo_comercial) {
+                console.log("User profile incomplete. Showing profile gate.");
+                document.getElementById('display-name').value = profile?.display_name || '';
+                document.getElementById('codigo-comercial').value = profile?.codigo_comercial || '';
+                document.getElementById('delegacion-code').value = profile?.delegacion_code || '';
+                showView('profile');
+            } else {
+                console.log("User profile complete. Welcome!");
+                document.getElementById('home-username').textContent = profile.display_name;
+                showView('home');
+            }
+        } catch (error) {
+            console.error("Error fetching user profile:", error);
+            if (error.message.includes('401')) {
+                alert('Error de autenticación. Es posible que no pertenezcas al dominio permitido (@ptvtelecom.com).');
+                logout();
+            } else {
+                alert('Error al contactar con el servidor. Revisa la URL de la Web App en Configuración.');
+                showView('config');
+            }
+        }
+    }
+    
+    function updateAuthUI() {
+        navLinksContainer.innerHTML = '';
+        authArea.innerHTML = '';
+        
+        if (state.userProfile) {
+            const links = [
+                { id: 'home', text: 'Inicio' },
+                { id: 'play-start', text: 'Jugar' },
+                { id: 'leaderboard', text: 'Ranking' },
+            ];
+            if (state.userProfile.rol === 'admin' || state.userProfile.rol === 'supervisor') {
+                links.push({ id: 'admin', text: 'Admin' });
+            }
+            links.push({ id: 'config', text: 'Config' });
             
-            // For POST requests, GAS needs a specific structure
-            if (config.method === 'POST') {
-                // The URL already contains the path, body is what needs to be sent
-                // GAS doPost(e) will handle parsing e.postData.contents
-            }
-
-            console.log(`Fetching API: ${config.method} ${url}`);
-            const response = await fetch(url, config);
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                console.error(`API Error ${response.status}:`, errorText);
-                throw new Error(`API Error ${response.status}: ${errorText}`);
-            }
-
-            const data = await response.json();
-            return data;
+            links.forEach(link => {
+                const a = document.createElement('a');
+                a.href = '#';
+                a.dataset.view = link.id;
+                a.textContent = link.text;
+                a.className = 'text-gray-500 hover:bg-gray-100 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium nav-link';
+                a.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    navigateTo(link.id);
+                });
+                navLinksContainer.appendChild(a);
+            });
+            
+            authArea.innerHTML = `
+                <span class="text-sm text-gray-600">${state.userProfile.auth_email}</span>
+                <button id="logout-btn" class="bg-red-500 text-white px-3 py-1 rounded-md text-sm font-medium hover:bg-red-600">Salir</button>
+            `;
+            document.getElementById('logout-btn').addEventListener('click', logout);
         }
-
-        // --- EVENT LISTENERS & HANDLERS ---
-        function addEventListeners() {
-            document.getElementById('config-form').addEventListener('submit', handleConfigSave);
-            document.getElementById('profile-form').addEventListener('submit', handleProfileSave);
-            document.getElementById('start-quiz-btn-home').addEventListener('click', () => showView('play-start'));
-            document.getElementById('start-fortalezas-btn').addEventListener('click', () => startQuiz('Fortalezas de PTV'));
-            document.getElementById('play-again-btn').addEventListener('click', () => showView('play-start'));
-            document.getElementById('view-ranking-btn').addEventListener('click', () => navigateTo('leaderboard'));
-            document.getElementById('import-questions-btn').addEventListener('click', handleImportQuestions);
-        }
-        
-        function handleConfigSave(e) {
-            e.preventDefault();
-            const urlInput = document.getElementById('web-app-url');
-            let url = urlInput.value.trim();
-            if (url) {
-                if (!url.endsWith('exec')) {
-                    url += (url.endsWith('/') ? '' : '/') + 'exec';
-                }
-                state.webAppUrl = url;
-                localStorage.setItem('ptvQuizWebAppUrl', url);
-                console.log("Web App URL saved.");
-                init(); // Re-initialize the app with the new URL
+    }
+    
+    function updateNavActiveState(viewId) {
+        document.querySelectorAll('.nav-link').forEach(link => {
+            if(link.dataset.view === viewId) {
+                link.classList.add('bg-gray-200', 'text-gray-900');
+                link.classList.remove('text-gray-500');
+            } else {
+                link.classList.remove('bg-gray-200', 'text-gray-900');
+                link.classList.add('text-gray-500');
             }
+        });
+    }
+    
+    async function navigateTo(viewId) {
+        if (viewId === 'leaderboard') {
+            await loadLeaderboard();
         }
-        
-        async function handleProfileSave(e) {
-            e.preventDefault();
-            const displayName = document.getElementById('display-name').value;
-            const delegacionCode = document.getElementById('delegacion-code').value;
-            const codigoComercial = document.getElementById('codigo-comercial').value;
-            const errorEl = document.getElementById('profile-error');
+        showView(viewId);
+    }
 
-            const validationError = validateDisplayName(displayName);
-            if(validationError) {
-                errorEl.textContent = validationError;
-                errorEl.classList.remove('hidden');
+    function logout() {
+        console.log("Logging out.");
+        state.idToken = null;
+        state.userProfile = null;
+        localStorage.removeItem('ptvQuizIdToken');
+        google.accounts.id.disableAutoSelect();
+        authArea.innerHTML = '';
+        navLinksContainer.innerHTML = '';
+        showView('auth');
+        google.accounts.id.renderButton(
+            document.getElementById("google-signin-button"),
+            { theme: "outline", size: "large" }
+        );
+    }
+
+    // --- API CLIENT ---
+    async function fetchAPI(endpoint, options = {}) {
+        const url = `${state.webAppUrl}?path=${endpoint.substring(1)}`;
+        const headers = {
+            'Content-Type': 'application/json',
+            ...options.headers,
+        };
+        if (state.idToken) {
+            headers['Authorization'] = `Bearer ${state.idToken}`;
+        }
+        const config = {
+            method: options.method || 'GET',
+            headers,
+            body: options.body ? JSON.stringify(options.body) : null,
+            redirect: 'follow',
+            mode: 'cors',
+        };
+        const response = await fetch(url, config);
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error(`API Error ${response.status}:`, errorText);
+            throw new Error(`API Error ${response.status}: ${errorText}`);
+        }
+        return response.json();
+    }
+
+    // --- EVENT LISTENERS & HANDLERS ---
+    function addEventListeners() {
+        document.getElementById('config-form').addEventListener('submit', handleConfigSave);
+        document.getElementById('profile-form').addEventListener('submit', handleProfileSave);
+        document.getElementById('start-quiz-btn-home').addEventListener('click', () => showView('play-start'));
+        document.getElementById('start-fortalezas-btn').addEventListener('click', () => startQuiz('Fortalezas de PTV'));
+        document.getElementById('play-again-btn').addEventListener('click', () => showView('play-start'));
+        document.getElementById('view-ranking-btn').addEventListener('click', () => navigateTo('leaderboard'));
+        document.getElementById('import-questions-btn').addEventListener('click', handleImportQuestions);
+    }
+    
+    function handleConfigSave(e) {
+        e.preventDefault();
+        const urlInput = document.getElementById('web-app-url');
+        let url = urlInput.value.trim();
+        if (url) {
+            if (!url.endsWith('exec')) {
+                url += (url.endsWith('/') ? '' : '/') + 'exec';
+            }
+            localStorage.setItem('ptvQuizWebAppUrl', url);
+            window.location.reload();
+        }
+    }
+    
+    async function handleProfileSave(e) {
+        e.preventDefault();
+        const displayName = document.getElementById('display-name').value;
+        const delegacionCode = document.getElementById('delegacion-code').value;
+        const codigoComercial = document.getElementById('codigo-comercial').value;
+        const errorEl = document.getElementById('profile-error');
+        const validationError = validateDisplayName(displayName);
+        if(validationError) {
+            errorEl.textContent = validationError;
+            errorEl.classList.remove('hidden');
+            return;
+        }
+        errorEl.classList.add('hidden');
+        const profileData = {
+            display_name: displayName,
+            delegacion_code: delegacionCode,
+            codigo_comercial: codigoComercial,
+        };
+        try {
+            showView('loading');
+            const updatedProfile = await fetchAPI('/saveProfile', { method: 'POST', body: profileData });
+            state.userProfile = updatedProfile;
+            await handleLoginSuccess();
+        } catch (error) {
+            alert("Hubo un error al guardar tu perfil.");
+            showView('profile');
+        }
+    }
+    
+    // --- QUIZ LOGIC ---
+    
+    async function startQuiz(category) {
+        showView('loading');
+        try {
+            const allQuestions = await fetchAPI(`/questions?categoria=${encodeURIComponent(category)}`);
+            if (allQuestions.length < 10) {
+                alert('No hay suficientes preguntas en esta categoría.');
+                showView('play-start');
                 return;
             }
-            errorEl.classList.add('hidden');
-
-            const profileData = {
-                display_name: displayName,
-                delegacion_code: delegacionCode,
-                codigo_comercial: codigoComercial,
-            };
-            
-            try {
-                showView('loading');
-                const updatedProfile = await fetchAPI('/saveProfile', { method: 'POST', body: profileData });
-                state.userProfile = updatedProfile;
-                await handleLoginSuccess(); // Re-run the logic to ensure UI is updated and move to home
-            } catch (error) {
-                console.error("Error saving profile:", error);
-                alert("Hubo un error al guardar tu perfil. Inténtalo de nuevo.");
-                showView('profile');
-                
-            }
+            state.quiz.questions = allQuestions.sort(() => 0.5 - Math.random()).slice(0, 10);
+            state.quiz.currentQuestionIndex = 0;
+            state.quiz.score = 0;
+            state.quiz.streak = 0;
+            const session = await fetchAPI('/startSession', { method: 'POST', body: { categoria: category }});
+            state.quiz.sessionId = session.session_id;
+            state.quiz.startTime = new Date();
+            showView('quiz');
+            displayCurrentQuestion();
+        } catch (error) {
+            alert("No se pudo iniciar el quiz.");
+            showView('play-start');
         }
-        
-        // --- QUIZ LOGIC ---
-        
-        async function startQuiz(category) {
-            showView('loading');
-            try {
-                const allQuestions = await fetchAPI(`/questions?categoria=${encodeURIComponent(category)}`);
-                if (allQuestions.length < 10) {
-                    alert('No hay suficientes preguntas en esta categoría para empezar un quiz.');
-                    showView('play-start');
-                    return;
-                }
-                
-                // Shuffle and pick 10
-                state.quiz.questions = allQuestions.sort(() => 0.5 - Math.random()).slice(0, 10);
-                state.quiz.currentQuestionIndex = 0;
-                state.quiz.score = 0;
-                state.quiz.streak = 0;
-                
-                const session = await fetchAPI('/startSession', { method: 'POST', body: { categoria: category }});
-                state.quiz.sessionId = session.session_id;
-                state.quiz.startTime = new Date();
+    }
 
-                showView('quiz');
-                displayCurrentQuestion();
-
-            } catch (error) {
-                console.error("Failed to start quiz:", error);
-                alert("No se pudo iniciar el quiz. Inténtalo de nuevo.");
-                showView('play-start');
-            }
+    function displayCurrentQuestion() {
+        const quiz = state.quiz;
+        const question = quiz.questions[quiz.currentQuestionIndex];
+        document.getElementById('question-current-num').textContent = quiz.currentQuestionIndex + 1;
+        document.getElementById('question-total-num').textContent = quiz.questions.length;
+        document.getElementById('quiz-score').textContent = quiz.score;
+        document.getElementById('quiz-streak').textContent = `x${quiz.streak}`;
+        document.getElementById('question-text').textContent = question.enunciado;
+        document.getElementById('answer-feedback').textContent = '';
+        const answersContainer = document.getElementById('answers-container');
+        answersContainer.innerHTML = '';
+        switch(question.tipo) {
+            case 'vof':
+            case 'mcq':
+                const options = JSON.parse(question.opciones_json);
+                options.forEach((option, index) => {
+                    const button = document.createElement('button');
+                    button.textContent = option;
+                    button.dataset.index = index;
+                    button.className = 'block w-full text-left p-4 border border-gray-300 rounded-lg hover:bg-gray-100';
+                    button.addEventListener('click', () => handleAnswer(index, option));
+                    answersContainer.appendChild(button);
+                });
+                break;
+            case 'abierta':
+                const form = document.createElement('form');
+                form.innerHTML = `
+                    <input type="text" id="open-answer-input" class="block w-full px-3 py-2 border border-gray-300 rounded-md" placeholder="Escribe tu respuesta...">
+                    <button type="submit" class="mt-3 w-full bg-blue-600 text-white py-2 rounded-md hover:bg-blue-700">Enviar</button>
+                `;
+                form.addEventListener('submit', (e) => {
+                    e.preventDefault();
+                    handleAnswer(-1, document.getElementById('open-answer-input').value.trim());
+                });
+                answersContainer.appendChild(form);
+                document.getElementById('open-answer-input').focus();
+                break;
         }
+        startTimer();
+    }
 
-        function displayCurrentQuestion() {
-            const quiz = state.quiz;
-            const question = quiz.questions[quiz.currentQuestionIndex];
-            
-            document.getElementById('question-current-num').textContent = quiz.currentQuestionIndex + 1;
-            document.getElementById('question-total-num').textContent = quiz.questions.length;
-            document.getElementById('quiz-score').textContent = quiz.score;
-            document.getElementById('quiz-streak').textContent = `x${quiz.streak}`;
-            document.getElementById('question-text').textContent = question.enunciado;
-            document.getElementById('answer-feedback').textContent = '';
+    function startTimer() {
+        clearTimeout(state.quiz.timer);
+        const timerBar = document.getElementById('timer-bar-inner');
+        timerBar.style.transition = 'none';
+        timerBar.style.width = '100%';
+        void timerBar.offsetWidth;
+        timerBar.style.transition = `width ${QUIZ_TIME_LIMIT}s linear`;
+        timerBar.style.width = '0%';
+        state.quiz.timer = setTimeout(() => handleAnswer(-1, null, true), QUIZ_TIME_LIMIT * 1000);
+    }
 
-            const answersContainer = document.getElementById('answers-container');
-            answersContainer.innerHTML = '';
-
-            switch(question.tipo) {
-                case 'vof':
-                case 'mcq': // Assuming mcq and vof use options_json
-                    const options = JSON.parse(question.opciones_json);
-                    options.forEach((option, index) => {
-                        const button = document.createElement('button');
-                        button.textContent = option;
-                        button.dataset.index = index;
-                        button.className = 'block w-full text-left p-4 border border-gray-300 rounded-lg hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-400';
-                        button.addEventListener('click', () => handleAnswer(index, option));
-                        answersContainer.appendChild(button);
-                    });
-                    break;
-                case 'abierta':
-                    const form = document.createElement('form');
-                    form.innerHTML = `
-                        <input type="text" id="open-answer-input" class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm" placeholder="Escribe tu respuesta...">
-                        <button type="submit" class="mt-3 w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700">Enviar</button>
-                    `;
-                    form.addEventListener('submit', (e) => {
-                        e.preventDefault();
-                        const input = document.getElementById('open-answer-input');
-                        handleAnswer(-1, input.value.trim());
-                    });
-                    answersContainer.appendChild(form);
-                    document.getElementById('open-answer-input').focus();
-                    break;
-            }
-            startTimer();
-        }
-
-        function startTimer() {
-            clearTimeout(state.quiz.timer);
-            const timerBar = document.getElementById('timer-bar-inner');
-            timerBar.style.transition = 'none';
-            timerBar.style.width = '100%';
-            
-            // Force reflow to restart animation
-            void timerBar.offsetWidth;
-
-            timerBar.style.transition = `width ${QUIZ_TIME_LIMIT}s linear`;
-            timerBar.style.width = '0%';
-            
-            state.quiz.timer = setTimeout(() => {
-                handleAnswer(-1, null, true); // Time's up
-            }, QUIZ_TIME_LIMIT * 1000);
-        }
-
-        async function handleAnswer(selectedIndex, selectedText, isTimeout = false) {
-            clearTimeout(state.quiz.timer);
-            
-            const question = state.quiz.questions[state.quiz.currentQuestionIndex];
-            const feedbackEl = document.getElementById('answer-feedback');
-            
-            let isCorrect = false;
-            let points = -60;
-            let newStreak = 0;
-            
-            if (!isTimeout) {
-                if (question.tipo === 'abierta') {
-                    isCorrect = normalizeText(selectedText) === normalizeText(question.correcta_text);
-                } else {
-                    isCorrect = selectedIndex == question.correcta_idx;
-                }
-            }
-
-            if(isCorrect) {
-                const timerBarWidth = document.getElementById('timer-bar-inner').offsetWidth;
-                const totalBarWidth = document.getElementById('timer-bar').offsetWidth;
-                const timeBonus = Math.floor(50 * (timerBarWidth / totalBarWidth));
-                
-                newStreak = state.quiz.streak + 1;
-                const streakBonus = Math.min(50, newStreak * 10);
-                
-                points = 100 + timeBonus + streakBonus;
-                state.quiz.score += points;
-                state.quiz.streak = newStreak;
-                feedbackEl.textContent = `¡Correcto! +${points} puntos`;
-                feedbackEl.className = 'mt-4 text-center font-bold text-green-600';
+    async function handleAnswer(selectedIndex, selectedText, isTimeout = false) {
+        clearTimeout(state.quiz.timer);
+        const question = state.quiz.questions[state.quiz.currentQuestionIndex];
+        const feedbackEl = document.getElementById('answer-feedback');
+        let isCorrect = false;
+        let points = -60;
+        let newStreak = 0;
+        if (!isTimeout) {
+            if (question.tipo === 'abierta') {
+                isCorrect = normalizeText(selectedText) === normalizeText(question.correcta_text);
             } else {
-                state.quiz.score += points;
-                state.quiz.streak = 0;
-                 if (isTimeout) {
-                    feedbackEl.textContent = `¡Tiempo agotado! ${points} puntos`;
-                } else {
-                    feedbackEl.textContent = `Incorrecto. ${points} puntos`;
-                }
-                feedbackEl.className = 'mt-4 text-center font-bold text-red-600';
+                isCorrect = selectedIndex == question.correcta_idx;
             }
-            
-            // Highlight correct/incorrect options visually
-            const buttons = document.querySelectorAll('#answers-container button[data-index]');
-            buttons.forEach(button => {
-                button.disabled = true;
-                const buttonIndex = button.dataset.index;
-                if (buttonIndex == question.correcta_idx) {
-                    button.classList.add('bg-green-500', 'text-white', 'border-green-500');
-                } else if (buttonIndex == selectedIndex) {
-                    button.classList.add('bg-red-500', 'text-white', 'border-red-500');
+        }
+        if(isCorrect) {
+            const timerBonus = Math.floor(50 * (document.getElementById('timer-bar-inner').offsetWidth / document.getElementById('timer-bar').offsetWidth));
+            newStreak = state.quiz.streak + 1;
+            const streakBonus = Math.min(50, newStreak * 10);
+            points = 100 + timerBonus + streakBonus;
+            state.quiz.score += points;
+            state.quiz.streak = newStreak;
+            feedbackEl.textContent = `¡Correcto! +${points} puntos`;
+            feedbackEl.className = 'mt-4 text-center font-bold text-green-600';
+        } else {
+            state.quiz.score += points;
+            state.quiz.streak = 0;
+            feedbackEl.textContent = isTimeout ? `¡Tiempo agotado! ${points} puntos` : `Incorrecto. ${points} puntos`;
+            feedbackEl.className = 'mt-4 text-center font-bold text-red-600';
+        }
+        document.querySelectorAll('#answers-container button, #answers-container input').forEach(el => el.disabled = true);
+        document.getElementById('quiz-score').textContent = state.quiz.score;
+        document.getElementById('quiz-streak').textContent = `x${state.quiz.streak}`;
+        try {
+            await fetchAPI('/answer', {
+                method: 'POST',
+                body: {
+                    session_id: state.quiz.sessionId,
+                    question_id: question.id,
+                    correcta: isCorrect,
+                    puntos: points,
+                    seleccion_idx: selectedIndex,
+                    respuesta_text: selectedText
                 }
             });
-            
-            document.getElementById('quiz-score').textContent = state.quiz.score;
-            document.getElementById('quiz-streak').textContent = `x${state.quiz.streak}`;
-            
-            try {
-                await fetchAPI('/answer', {
-                    method: 'POST',
-                    body: {
-                        session_id: state.quiz.sessionId,
-                        question_id: question.id,
-                        correcta: isCorrect,
-                        tiempo_respuesta_ms: 1000, // Placeholder, can be calculated more accurately
-                        puntos: points,
-                        seleccion_idx: selectedIndex,
-                        respuesta_text: selectedText
-                    }
-                });
-            } catch (error) {
-                console.error("Failed to save answer:", error);
-            }
-
-            setTimeout(nextQuestionOrEnd, 2000);
-        }
-
-        function nextQuestionOrEnd() {
+        } catch (error) { console.error("Failed to save answer:", error); }
+        setTimeout(() => {
             if (state.quiz.currentQuestionIndex < state.quiz.questions.length - 1) {
                 state.quiz.currentQuestionIndex++;
                 displayCurrentQuestion();
             } else {
                 endQuiz();
             }
+        }, 2000);
+    }
+
+    async function endQuiz() {
+        showView('loading');
+        const duration = new Date() - state.quiz.startTime;
+        try {
+            await fetchAPI('/endSession', {
+                method: 'POST',
+                body: { session_id: state.quiz.sessionId, score: state.quiz.score, duracion_ms: duration }
+            });
+            document.getElementById('final-score').textContent = state.quiz.score;
+            const leaderboardData = await fetchAPI('/leaderboard');
+            document.getElementById('end-game-leaderboard').innerHTML = leaderboardData.slice(0, 5).map((entry, index) => `
+                <div class="flex justify-between p-2 ${index % 2 === 0 ? 'bg-gray-50' : ''} rounded">
+                    <span>${index + 1}. ${entry.display_name}</span><span class="font-bold">${entry.total_score}</span>
+                </div>`).join('');
+            showView('quiz-end');
+        } catch (error) {
+            alert("Hubo un error al finalizar la partida.");
+            showView('home');
         }
-
-        async function endQuiz() {
-            showView('loading');
-            const duration = new Date() - state.quiz.startTime;
-
-            try {
-                await fetchAPI('/endSession', {
-                    method: 'POST',
-                    body: {
-                        session_id: state.quiz.sessionId,
-                        score: state.quiz.score,
-                        duracion_ms: duration,
-                    }
-                });
-
-                document.getElementById('final-score').textContent = state.quiz.score;
-                
-                // Fetch mini leaderboard for end screen
-                const leaderboardData = await fetchAPI('/leaderboard');
-                const miniLeaderboardContainer = document.getElementById('end-game-leaderboard');
-                miniLeaderboardContainer.innerHTML = leaderboardData.slice(0, 5).map((entry, index) => `
-                    <div class="flex justify-between p-2 ${index % 2 === 0 ? 'bg-gray-50' : ''} rounded">
-                        <span>${index + 1}. ${entry.display_name}</span>
-                        <span class="font-bold">${entry.total_score}</span>
-                    </div>
-                `).join('');
-                
-                showView('quiz-end');
-
-            } catch (error) {
-                console.error("Failed to end quiz session:", error);
-                alert("Hubo un error al finalizar la partida.");
-                showView('home');
-            }
-        }
-        
-        // --- LEADERBOARD ---
-        async function loadLeaderboard() {
-            try {
-                const leaderboardData = await fetchAPI('/leaderboard');
-                const tbody = document.getElementById('leaderboard-body');
-                if (leaderboardData.length === 0) {
-                     tbody.innerHTML = `<tr><td colspan="5" class="text-center p-4">No hay datos de ranking todavía. ¡Juega una partida para aparecer aquí!</td></tr>`;
-                     return;
-                }
-                tbody.innerHTML = leaderboardData.map((entry, index) => `
-                    <tr class="${index === 0 ? 'bg-yellow-100' : (index === 1 ? 'bg-gray-200' : (index === 2 ? 'bg-orange-100' : ''))}">
-                        <td class="px-6 py-4 whitespace-nowrap font-bold">${index + 1}</td>
-                        <td class="px-6 py-4 whitespace-nowrap">${entry.display_name}</td>
-                        <td class="px-6 py-4 whitespace-nowrap">${entry.delegacion_code}</td>
-                        <td class="px-6 py-4 whitespace-nowrap">${entry.games_played}</td>
-                        <td class="px-6 py-4 whitespace-nowrap font-bold">${entry.total_score}</td>
-                    </tr>
-                `).join('');
-            } catch (error) {
-                console.error("Failed to load leaderboard:", error);
-                document.getElementById('leaderboard-body').innerHTML = `<tr><td colspan="5" class="text-center text-red-500 p-4">Error al cargar el ranking.</td></tr>`;
-            }
-        }
-
-        // --- ADMIN ---
-        function handleImportQuestions() {
-            showModal(
-                '¿Estás seguro de que quieres cargar las 100 preguntas de "Fortalezas de PTV"? Esto puede añadir duplicados si ya existen.',
-                async () => {
-                    const btn = document.getElementById('import-questions-btn');
-                    const statusEl = document.getElementById('import-status');
-                    btn.disabled = true;
-                    btn.textContent = 'Importando...';
-                    statusEl.textContent = 'Enviando datos al servidor...';
-                    
-                    try {
-                        const result = await fetchAPI('/importAutoFortalezas', {
-                            method: 'POST',
-                            body: { questionsText: questionsToImport }
-                        });
-                        statusEl.textContent = `¡Éxito! Se han importado ${result.imported} nuevas preguntas.`;
-                        statusEl.className = 'mt-4 text-center text-green-600';
-                    } catch (error) {
-                         statusEl.textContent = `Error: ${error.message}`;
-                         statusEl.className = 'mt-4 text-center text-red-600';
-                    } finally {
-                        btn.disabled = false;
-                        btn.textContent = "Cargar 100 'Fortalezas de PTV' (auto)";
-                    }
-                }
-            );
-        }
-
-        // --- UTILITY FUNCTIONS ---
-        function validateDisplayName(name) {
-            const normalized = name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-            
-            // Length check
-            if (name.length < 2 || name.length > 24) return "El nombre debe tener entre 2 y 24 caracteres.";
-            
-            // Blacklist check
-            const blacklist = ["puta", "puto", "mierda", "gilipoll", "cabron", "pendej", "coño", "hijoputa", "bastard", "imbecil", "racist", "nazi", "fascist", "maricon", "zorra", "perra"];
-            if (blacklist.some(word => normalized.includes(word))) return "El nombre contiene palabras no permitidas.";
-            
-            // Company name check
-            if (normalized.startsWith("ptv") || normalized.includes("zapi")) return "El nombre no puede contener 'PTV' o 'Zapi'.";
-            
-            // Format check
-            if (/\d{9,}/.test(name)) return "El nombre no puede parecer un número de teléfono.";
-            if (/https?:\/\//.test(name) || /@/.test(name)) return "El nombre no puede contener URLs o handles.";
-
-            return null; // No error
-        }
-        
-        function normalizeText(text) {
-            if (typeof text !== 'string') return '';
-            return text.toLowerCase()
-                .trim()
-                -normalize("NFD")
-                .replace(/[\u0300-\u036f]/g, "")
-                .replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g,"");
-        }
-
-        function showModal(body, onConfirm) {
-            const modal = document.getElementById('modal');
-            document.getElementById('modal-body').textContent = body;
-            
-            const confirmBtn = document.getElementById('modal-confirm');
-            const cancelBtn = document.getElementById('modal-cancel');
-
-            const confirmHandler = () => {
-                onConfirm();
-                hideModal();
-            };
-            const cancelHandler = () => hideModal();
-
-            // Clone to remove old listeners
-            const newConfirmBtn = confirmBtn.cloneNode(true);
-            confirmBtn.parentNode.replaceChild(newConfirmBtn, confirmBtn);
-            newConfirmBtn.addEventListener('click', confirmHandler);
-
-            const newCancelBtn = cancelBtn.cloneNode(true);
-            cancelBtn.parentNode.replaceChild(newCancelBtn, cancelBtn);
-            newCancelBtn.addEventListener('click', cancelHandler);
-
-            modal.classList.remove('hidden');
-        }
-
-        function hideModal() {
-            document.getElementById('modal').classList.add('hidden');
-        }
-
-
-        // --- START THE APP ---
-        document.addEventListener('DOMContentLoaded', init);
-
-    })();
-    // --- END OF SCRIPT ---
+    }
     
+    async function loadLeaderboard() {
+        try {
+            const leaderboardData = await fetchAPI('/leaderboard');
+            const tbody = document.getElementById('leaderboard-body');
+            tbody.innerHTML = leaderboardData.length === 0 ? `<tr><td colspan="5" class="text-center p-4">No hay datos.</td></tr>` : 
+                leaderboardData.map((entry, index) => `
+                <tr class="${index < 3 ? ['bg-yellow-100', 'bg-gray-200', 'bg-orange-100'][index] : ''}">
+                    <td class="px-6 py-4 font-bold">${index + 1}</td><td class="px-6 py-4">${entry.display_name}</td>
+                    <td class="px-6 py-4">${entry.delegacion_code}</td><td class="px-6 py-4">${entry.games_played}</td>
+                    <td class="px-6 py-4 font-bold">${entry.total_score}</td>
+                </tr>`).join('');
+        } catch (error) {
+            document.getElementById('leaderboard-body').innerHTML = `<tr><td colspan="5" class="text-center text-red-500 p-4">Error al cargar.</td></tr>`;
+        }
+    }
+
+    function handleImportQuestions() {
+        showModal('¿Cargar las 100 preguntas de "Fortalezas de PTV"?', async () => {
+            const btn = document.getElementById('import-questions-btn');
+            const statusEl = document.getElementById('import-status');
+            btn.disabled = true; statusEl.textContent = 'Importando...';
+            try {
+                const result = await fetchAPI('/importAutoFortalezas', { method: 'POST', body: { questionsText: questionsToImport } });
+                statusEl.textContent = `¡Éxito! Importadas ${result.imported} preguntas.`;
+                statusEl.className = 'mt-4 text-center text-green-600';
+            } catch (error) {
+                 statusEl.textContent = `Error: ${error.message}`;
+                 statusEl.className = 'mt-4 text-center text-red-600';
+            } finally {
+                btn.disabled = false;
+            }
+        });
+    }
+
+    // --- UTILITY FUNCTIONS ---
+    function validateDisplayName(name) {
+        const normalized = name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        if (name.length < 2 || name.length > 24) return "El nombre debe tener entre 2 y 24 caracteres.";
+        const blacklist = ["puta","puto","mierda","gilipoll","cabron","pendej","coño","hijoputa","bastard","imbecil","racist","nazi","fascist","maricon","zorra","perra"];
+        if (blacklist.some(word => normalized.includes(word))) return "El nombre contiene palabras no permitidas.";
+        if (normalized.startsWith("ptv") || normalized.includes("zapi")) return "El nombre no puede contener 'PTV' o 'Zapi'.";
+        if (/\d{9,}/.test(name) || /https?:\/\//.test(name) || /@/.test(name)) return "Formato de nombre no válido.";
+        return null;
+    }
+    
+    function normalizeText(text) {
+        if (typeof text !== 'string') return '';
+        return text.toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g,"");
+    }
+
+    function showModal(body, onConfirm) {
+        const modal = document.getElementById('modal');
+        document.getElementById('modal-body').textContent = body;
+        const confirmBtn = document.getElementById('modal-confirm');
+        const cancelBtn = document.getElementById('modal-cancel');
+        const newConfirmBtn = confirmBtn.cloneNode(true);
+        confirmBtn.parentNode.replaceChild(newConfirmBtn, confirmBtn);
+        newConfirmBtn.addEventListener('click', () => { onConfirm(); hideModal(); });
+        const newCancelBtn = cancelBtn.cloneNode(true);
+        cancelBtn.parentNode.replaceChild(newCancelBtn, cancelBtn);
+        newCancelBtn.addEventListener('click', hideModal);
+        modal.classList.remove('hidden');
+    }
+
+    function hideModal() { document.getElementById('modal').classList.add('hidden'); }
+
     // Hardcoded question block for import
     const questionsToImport = `
 ### **Quiz Completo: Fortalezas y Técnicas de Venta de PTV Telecom**
@@ -872,31 +744,22 @@
 
 1.  ¿Cuál es la principal razón que se argumenta por la que otras compañías imponen permanencia?
     **Respuesta:** Porque no confían plenamente en la calidad de su servicio para que el cliente se quede por voluntad propia, o no se fían del cliente.
-
 2.  Según el argumentario, si un técnico tiene que atender a dos clientes con avería (uno con permanencia y otro sin ella), ¿a cuál atenderá primero?
     **Respuesta:** Al que no tiene permanencia, porque es el que se puede ir en cualquier momento.
-
 3.  ¿Qué se está garantizando un cliente, según las fuentes, al firmar un contrato de permanencia?
     **Respuesta:** Un peor servicio durante toda la vida del contrato.
-
 4.  **Verdadero o Falso:** PTV Telecom ha tenido, tiene y tendrá siempre contratos de permanencia.
     **Respuesta:** Falso.
-
 5.  La ausencia de permanencia en PTV es una prueba de ______ en la calidad de su servicio.
     **Respuesta:** Confianza.
-
 6.  ¿Qué obliga a PTV a dar siempre el mejor servicio y la mejor atención?
     **Respuesta:** El hecho de que sus clientes son libres de irse cuando quieran al no tener permanencia.
-
 7.  **Completa la frase:** "Nuestros clientes están con nosotros porque están ______, no porque les aten".
     **Respuesta:** contentos.
-
 8.  ¿Cuántos usuarios se menciona que tiene PTV que se mantienen con la compañía sin estar atados por permanencia?
     **Respuesta:** Más de un millón de usuarios.
-
 9.  La filosofía de no tener permanencia se basa en que el compromiso es de la empresa hacia el cliente, y no al revés. ¿Qué analogía se usa para explicar esto?
     **Respuesta:** La del panadero: nadie compra el pan repetidamente en el mismo sitio si no le gusta el pan.
-
 10. ¿Cómo se debe iniciar la conversación sobre la permanencia con un cliente?
     **Respuesta:** Presentándola como una de las "grandes diferencias" de PTV frente a su compañía actual.
 
@@ -904,46 +767,32 @@
 
 11. ¿Qué porcentaje de la velocidad contratada garantiza PTV a sus clientes?
     **Respuesta:** El 100%.
-
 12. ¿Cómo demuestra PTV que el cliente recibe el 100% de la velocidad contratada?
     **Respuesta:** Con un test de velocidad realizado por el técnico en el domicilio del cliente al finalizar la instalación.
-
 13. ¿Qué porcentaje de la velocidad garantizan por contrato otras compañías, según las fuentes?
     **Respuesta:** Mencionan porcentajes como el 70% o incluso el 50%.
-
 14. ¿Cuándo da PTV una instalación por válida?
     **Respuesta:** Solo cuando se comprueba que al cliente le llega el 100% de la velocidad contratada.
-
 15. **Verdadero o Falso:** Para PTV es válido que un cliente con 300 Mb reciba solo 150 Mb.
     **Respuesta:** Falso.
-
 16. ¿Qué tecnología de red de fibra óptica utiliza PTV que la diferencia de la mayoría?
     **Respuesta:** GPON 10.
-
 17. ¿Qué ventaja clave tiene la red GPON 10 de PTV frente a la de otras dos compañías que también la instalan?
     **Respuesta:** PTV es la única que la tiene desplegada en toda su red, no solo en zonas concretas o "premium".
-
 18. ¿Qué velocidad máxima permite la tecnología GPON 10?
     **Respuesta:** Hasta 10 Gb.
-
 19. ¿Qué se le debe decir a un cliente que cree que su compañía actual (ej. Digi) tiene la mejor velocidad basándose en un estudio?
     **Respuesta:** Cuestionar sutilmente la validez del estudio, mencionando que solo mide a unas pocas compañías y que PTV destaca en informes más amplios como los de la OCU.
-
 20. ¿Qué se le puede preguntar a un cliente veterano de Digi que dice tener 1 giga para evaluar la situación?
     **Respuesta:** "¿Y cómo lo sabe?" para ver si realiza tests de velocidad y qué resultados obtiene.
-
 21. ¿Qué analogía se usa para explicarle a un cliente que, aunque le lleguen 800 Mb y le parezca suficiente, está pagando por 1000 Mb?
     **Respuesta:** La de las patatas: si pagas por cinco patatas, te tienen que dar las cinco, aunque solo necesites tres para cocinar hoy.
-
 22. **Completa la frase:** "Lo que paga es lo que recibe: ______ al 100%".
     **Respuesta:** garantizado.
-
 23. ¿La red de PTV es propia o alquilada?
     **Respuesta:** Es una red propia.
-
 24. ¿El equipamiento que PTV instala en casa del cliente (ONT) es propio o de la red que utiliza como base (ej. Orange en algunos casos)?
     **Respuesta:** Es propio de PTV, lo que afecta a la calidad final del servicio.
-
 25. ¿Qué se hace en cada visita técnica, incluso si no es por una avería de velocidad?
     **Respuesta:** Se vuelve a hacer un test de velocidad para seguir comprobando que llega el 100%.
 
@@ -951,46 +800,32 @@
 
 26. ¿Cuál es el horario del servicio técnico y de atención al cliente de PTV?
     **Respuesta:** 24 horas al día, 365 días al año.
-
 27. **Verdadero o Falso:** PTV es una de las muchas compañías en España que ofrecen servicio técnico 24/7, incluyendo festivos.
     **Respuesta:** Falso.
-
 28. Al llamar a PTV, ¿con quién habla el cliente?
     **Respuesta:** Siempre con una persona real, nunca con un robot.
-
 29. ¿Qué coste tiene para el cliente la reactivación del servicio por un impago?
     **Respuesta:** Es gratuita.
-
 30. ¿Cuánto cobran otras compañías por la reconexión, según las fuentes?
     **Respuesta:** Entre 20 y 30 €.
-
 31. ¿PTV cuenta con oficinas físicas para la atención al cliente?
     **Respuesta:** Sí.
-
 32. ¿Qué gestiones puede realizar un cliente en una oficina física de PTV?
     **Respuesta:** Cualquier gestión, incluyendo pago de facturas, contratación, configuración del móvil o resolución de dudas técnicas.
-
 33. ¿Los técnicos de PTV son personal propio o de subcontratas?
     **Respuesta:** Son personal propio de la empresa.
-
 34. ¿Qué significa el concepto de "técnico de zona"?
     **Respuesta:** Que se asigna al cliente un técnico que conoce la zona y que, a menudo, es la misma persona que le atiende siempre, generando confianza y cercanía.
-
 35. El "acompañamiento total al cliente" incluye resolver problemas que no son averías directas del servicio. Menciona dos ejemplos.
     **Respuesta:** Sintonizar un televisor nuevo, configurar un móvil, ayudar a conectar unos radiadores a internet, formatear un ordenador, etc..
-
 36. ¿Cuál es el tiempo medio de respuesta telefónica que se menciona en las fuentes?
     **Respuesta:** Menos de 20 segundos para el 80% de las llamadas.
-
 37. **Completa la frase:** "Aquí no hay letra pequeña: hay ______ que responden".
     **Respuesta:** personas.
-
 38. ¿Qué ventaja diferencial tiene la atención telefónica de PTV respecto a la transferencia de llamadas?
     **Respuesta:** La persona que atiende la llamada gestiona el caso hasta el final, sin transferir al cliente a otros departamentos.
-
 39. Si un cliente tiene un problema un viernes por la tarde, ¿cuándo se le resolverá?
     **Respuesta:** El mismo día o durante el fin de semana, a diferencia de otras compañías que esperarían al lunes.
-
 40. **Verdadero o Falso:** La atención 24/7 solo cubre averías, no consultas comerciales o administrativas.
     **Respuesta:** Falso.
 
@@ -998,31 +833,22 @@
 
 41. ¿Qué organización independiente sitúa a PTV entre las compañías mejor valoradas por los clientes?
     **Respuesta:** La OCU (Organización de Consumidores y Usuarios).
-
 42. ¿En qué aspecto destaca especialmente PTV en las encuestas de la OCU?
     **Respuesta:** En la satisfacción del cliente y la atención recibida.
-
 43. Comparado con O2, ¿cómo posiciona la OCU a PTV?
     **Respuesta:** Por encima o en mejor posición.
-
 44. **Verdadero o Falso:** El buen posicionamiento de PTV en la OCU se debe a una inversión en publicidad con dicha organización.
     **Respuesta:** Falso.
-
 45. ¿Cuántas compañías de telecomunicaciones se incluyen en las encuestas de la OCU?
     **Respuesta:** Se mencionan 32 compañías.
-
 46. ¿Cómo se puede usar el argumento de la OCU para reforzar la idea de la "no permanencia"?
     **Respuesta:** Explicando que la cultura de servicio excelente, obligada por la no permanencia, es lo que los clientes valoran y reflejan en las encuestas de la OCU.
-
 47. ¿Qué tipo de consumidores forman la OCU, según se describe en las formaciones?
     **Respuesta:** Consumidores exigentes, que pagan por estar asociados y miden mucho lo que reciben.
-
 48. **Completa la frase:** "Si la OCU nos pone entre los primeros, es porque algo estamos haciendo ______".
     **Respuesta:** bien.
-
 49. ¿El reconocimiento de la OCU es un hecho reciente o algo que se ha mantenido en el tiempo?
     **Respuesta:** Se ha mantenido durante los últimos 10 años.
-
 50. **Verdadero o Falso:** Para un cliente de Vodafone, se le puede indicar que su compañía está en los últimos lugares en la encuesta de la OCU.
     **Respuesta:** Verdadero.
 
@@ -1030,31 +856,22 @@
 
 51. **Estrategia con un cliente de O2:** ¿Se debe criticar a O2 para ganar al cliente?
     **Respuesta:** No. Se debe reconocer que O2 da un buen servicio y posicionar a PTV como una opción que ofrece lo mismo o más, pero a un precio más económico.
-
 52. ¿Por qué un cliente suele estar con O2 en lugar de con una low-cost como Digi?
     **Respuesta:** Porque valora la calidad del servicio y no quiere renunciar a ella, aunque busque un precio más bajo que el de Movistar.
-
 53. **Estrategia con un cliente de Digi:** ¿Qué se debe hacer si menciona un estudio que dice que Digi tiene el mejor internet?
     **Respuesta:** No desacreditarlo directamente, sino plantear dudas sobre la metodología del estudio (mide muy pocas compañías) y compararlo con los informes de la OCU, donde PTV sí destaca.
-
 54. ¿Cuáles son los puntos débiles de Digi que se pueden mencionar?
     **Respuesta:** La cobertura móvil y la calidad de su servicio de televisión.
-
 55. ¿Digi tiene permanencia?
     **Respuesta:** Sí, se menciona una permanencia de tres meses.
-
 56. **Estrategia general con competidores más baratos (ej. Digi):** ¿En qué se debe centrar el argumento?
     **Respuesta:** En los beneficios y el valor añadido (servicio técnico, atención 24/7, oficinas, garantía de velocidad) que justifican la diferencia de precio.
-
 57. ¿Cómo se rebate la objeción de "Digi es más barato"?
     **Respuesta:** Explicando que en Digi no tiene oficinas físicas, ni acompañamiento, ni configuración de equipos. Se debe preguntar al cliente cuánto valora la tranquilidad de tener un servicio completo.
-
 58. **Estrategia con un cliente de Vodafone:** ¿Qué punto débil clave se puede explotar?
     **Respuesta:** El hecho de que suelen tener permanencia y que su servicio de atención al cliente es deficiente (largas esperas, máquinas, problemas sin resolver).
-
 59. **Verdadero o Falso:** La estrategia de venta es la misma para un cliente de O2 que para uno de Digi.
     **Respuesta:** Falso.
-
 60. ¿Cuál es un diferenciador clave de PTV frente a todas las grandes operadoras (Movistar, Orange, Vodafone)?
     **Respuesta:** El modelo de gestión con red y personal propio, sin grandes campañas de publicidad, lo que permite un precio competitivo con un servicio de mayor calidad y cercanía.
 
@@ -1062,31 +879,22 @@
 
 61. ¿Cuál es la oferta principal de PTV dirigida a estudiantes?
     **Respuesta:** 2000 megas de velocidad más televisión (Zapi) por 24,95€.
-
 62. ¿Cómo se justifica esta oferta frente a una más barata de 9,95€ por 300 Mb que el estudiante haya podido ver?
     **Respuesta:** Explicando que 300 Mb es insuficiente para un piso con varios estudiantes y que el precio por mega en la oferta de 2000 Mb es hasta tres veces más barato.
-
 63. **Verdadero o Falso:** La oferta de 9,95€ es la recomendada para un piso de 4 estudiantes.
     **Respuesta:** Falso.
-
 64. Técnicamente, ¿cómo se entregan los 2000 megas en la mayoría de las instalaciones para estudiantes?
     **Respuesta:** A través de una ONT con dos puertos de 1 giga cada uno (1000 + 1000).
-
 65. ¿Se instala un decodificador de televisión por cable por defecto a los estudiantes?
     **Respuesta:** No, la televisión se ofrece a través de la plataforma Zapi (OTT) para evitar equipos adicionales.
-
 66. ¿Cuántos usuarios simultáneos permite la plataforma Zapi en la oferta de estudiantes?
     **Respuesta:** Cuatro usuarios.
-
 67. Si un estudiante insiste en que necesita los 2 gigas en una sola conexión (por ejemplo, para gaming competitivo), ¿es posible instalarlo?
     **Respuesta:** Sí, se puede instalar la ONT de 2 gigas y un mininodo si fuera necesario, aunque no es la opción por defecto.
-
 68. ¿Qué tipo de preguntas son clave para crear la necesidad de la oferta de 2000 megas en un estudiante?
     **Respuesta:** Preguntas sobre sus hábitos de consumo: cuántos son en el piso, si juegan online (PlayStation), si ven streaming (fútbol pirata, etc.).
-
 69. **Completa la frase:** "Esta oferta es una oferta precisamente pensada para estudiantes, donde pueden comprar ustedes los megas mucho más ______ que un cliente veterano de 9,95€".
     **Respuesta:** baratos.
-
 70. ¿La instalación de la fibra tiene coste para los estudiantes?
     **Respuesta:** No, la instalación es sin coste extra.
 
@@ -1094,46 +902,32 @@
 
 71. ¿Cuál es el objetivo principal de la encuesta inicial?
     **Respuesta:** Detectar qué valora más el cliente (precio, calidad, atención), conocer su compañía actual y si está satisfecho, para adaptar el argumentario.
-
 72. Según las fuentes, no se vende el producto, se vende...
     **Respuesta:** Lo que el producto hace; el beneficio, el sabor, la solución.
-
 73. ¿Cómo se debe responder a la objeción "Lo tengo que consultar"?
     **Respuesta:** Primero empatizar, luego aislar la objeción ("¿es el único inconveniente?") y finalmente reforzar los beneficios y preguntar por qué la otra persona no estaría de acuerdo.
-
 74. ¿Qué pregunta se puede hacer a un cliente que dice que PTV es más caro?
     **Respuesta:** "¿Y por qué cree usted que somos más caros?" para que el propio cliente deduzca que es por la calidad o el servicio.
-
 75. **Completa la frase:** "Si paga menos es porque le dan ______".
     **Respuesta:** menos.
-
 76. ¿Qué es un "cierre alternativo"? Pon un ejemplo.
     **Respuesta:** Ofrecer al cliente dos opciones donde ambas implican una compra. Ejemplo: "¿Prefiere la instalación por la mañana o por la tarde?".
-
 77. ¿Qué es un "cierre presuntivo"?
     **Respuesta:** Dar por hecho que el cliente va a contratar y empezar a rellenar el contrato pidiendo sus datos.
-
 78. ¿Para qué se utiliza la etapa de "Deseo" en el modelo AIDAS?
     **Respuesta:** Para generar en el cliente la necesidad y ganas de tener el servicio, explicando los beneficios de forma que se imagine disfrutándolos.
-
 79. Según el modelo SONCASE, ¿qué fortaleza de PTV corresponde a la "S" de Seguridad?
     **Respuesta:** Sus más de 40 años de experiencia y la atención 24h.
-
 80. Según el modelo SONCASE, ¿qué fortaleza de PTV corresponde a la "O" de Orgullo?
     **Respuesta:** La valoración de la OCU entre las mejores compañías de España.
-
 81. ¿Cuál es el primer paso para resolver una objeción?
     **Respuesta:** Escucharla atentamente sin interrumpir.
-
 82. ¿Qué significa la frase "La confianza se construye con hechos, no con palabras"?
     **Respuesta:** Es un lema para reforzar que las ventajas de PTV (como la no permanencia) son pruebas tangibles de su compromiso, no solo promesas.
-
 83. ¿Por qué es importante usar un tono de voz seguro y palabras potentes como "grandes diferencias"?
     **Respuesta:** Porque transmiten más fuerza y profesionalidad, captando mejor la atención del cliente que un lenguaje débil como "varias diferencias".
-
 84. **Verdadero o Falso:** Al tratar con un cliente, es mejor hablar el 80% del tiempo para explicarle bien todas las ventajas.
     **Respuesta:** Falso.
-
 85. ¿Qué se debe hacer si un cliente que viene a darse de baja dice que nunca ha tenido problemas con el servicio?
     **Respuesta:** Se debe usar ese argumento a favor, preguntándole por qué cambiar algo que funciona bien y recordándole los valores de la compañía que ya conoce.
 
@@ -1141,50 +935,39 @@
 
 86. Además de los servicios principales, ¿qué ofrece la televisión de PTV a nivel local?
     **Respuesta:** Canales locales con programación sobre la actualidad de la ciudad, producidos por periodistas propios.
-
 87. ¿Qué ventaja tiene la red de PTV para televisores antiguos?
     **Respuesta:** Emite en dos frecuencias (analógica y digital), permitiendo que televisores antiguos sin TDT puedan seguir funcionando sin aparatos adicionales.
-
 88. ¿Cuál es la política de PTV respecto a sus clientes cuando mejoran una tarifa?
     **Respuesta:** Se aplica la mejora primero a los clientes actuales, sin que tengan que pedirlo.
-
 89. El modelo de gestión de PTV se basa en tres pilares que le permiten tener precios competitivos. ¿Cuáles son?
     **Respuesta:** Red propia, personal propio (no subcontratas) y no realizar grandes campañas de publicidad.
-
 90. ¿Qué es el "peering" o las conexiones directas que tiene PTV?
     **Respuesta:** Conexiones físicas directas con los servidores de grandes proveedores de contenido (como Netflix o plataformas de videojuegos) para que el tráfico sea más rápido y fluido.
-
 91. ¿Qué ventaja ofrece este "peering" a los gamers?
     **Respuesta:** Un "ping" (tiempo de respuesta) más bajo, lo que se traduce en una ventaja competitiva en juegos online.
-
 92. ¿Qué particularidad se menciona sobre las IPs que utiliza Digi?
     **Respuesta:** Que en gran parte son IPs rumanas, lo que puede afectar a servicios de geolocalización.
-
 93. **Verdadero o Falso:** PTV subcontrata a otras empresas para las instalaciones y el mantenimiento técnico.
     **Respuesta:** Falso.
-
 94. ¿Qué lema resume la filosofía de PTV?
     **Respuesta:** "PTV de total confianza".
-
 95. **Completa la frase:** "En PTV no eres un número, eres parte de nuestra ______".
     **Respuesta:** comunidad.
-
 96. ¿Qué ocurre si un cliente de PTV se da de baja? ¿Cómo se gestiona la sintonización de su TV?
     **Respuesta:** Un técnico va a su casa y le deja la televisión sintonizada con la antena colectiva, como una muestra de elegancia y buen servicio hasta el final.
-
 97. ¿Cuál es una ventaja clave de Zapi para un piso compartido?
     **Respuesta:** Permite hasta 4 usuarios simultáneos, para que cada persona pueda ver lo que quiera en su propio dispositivo.
-
 98. ¿Qué es Zapi Kids?
     **Respuesta:** Una aplicación específica para niños con contenido bloqueado y adaptado a ellos.
-
 99. **Verdadero o Falso:** Si un cliente necesita configurar una impresora en su red doméstica, el servicio técnico de PTV le ayudará.
     **Respuesta:** Verdadero.
-
 100. ¿Cuál es la principal ventaja que un cliente pierde al irse a una compañía low-cost, según el argumentario general?
     **Respuesta:** La tranquilidad y la seguridad de tener un servicio completo y una atención al cliente real y eficaz que resuelve cualquier problema.
 `;
     </script>
 </body>
 </html>
+
+
+
 
