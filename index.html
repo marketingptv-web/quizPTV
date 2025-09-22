@@ -310,13 +310,20 @@
                 handleLoginSuccess();
             } else {
                 showView('auth');
-                google.accounts.id.renderButton(
-                    document.getElementById("google-signin-button"),
-                    { theme: "outline", size: "large" }
-                );
+                renderGoogleButton();
             }
         }
         addEventListeners();
+    }
+
+    function renderGoogleButton() {
+        const btnContainer = document.getElementById("google-signin-button");
+        if (btnContainer) {
+            google.accounts.id.renderButton(
+                btnContainer,
+                { theme: "outline", size: "large" }
+            );
+        }
     }
 
     function showView(viewId) {
@@ -433,10 +440,7 @@
         authArea.innerHTML = '';
         navLinksContainer.innerHTML = '';
         showView('auth');
-        google.accounts.id.renderButton(
-            document.getElementById("google-signin-button"),
-            { theme: "outline", size: "large" }
-        );
+        renderGoogleButton();
     }
 
     // --- API CLIENT ---
