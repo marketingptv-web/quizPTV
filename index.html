@@ -254,6 +254,9 @@
     <script src="https://accounts.google.com/gsi/client" async defer onload="onGoogleScriptLoad()"></script>
     
     <script>
+    // --- START OF APP SCRIPT ---
+    // NO envolvimos el código en (function() {}) para que onGoogleScriptLoad sea global
+
     // --- GLOBAL STATE & CONFIG ---
     let state = {
         idToken: null,
@@ -281,7 +284,6 @@
     // --- CORE INITIALIZATION ---
 
     // Esta función es llamada por el script de Google una vez que se ha cargado
-    // La hacemos global para que el atributo onload la encuentre.
     function onGoogleScriptLoad() {
         console.log("Google GSI script loaded.");
         google.accounts.id.initialize({
@@ -967,6 +969,7 @@
     </script>
 </body>
 </html>
+
 
 
 
