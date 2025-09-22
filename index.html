@@ -253,69 +253,46 @@
     </div>
     
     <script>
-    // --- START OF APP SCRIPT ---
-
-    // --- GLOBAL STATE & CONFIG ---
-    let state = {
-        idToken: null,
-        webAppUrl: null,
-        userProfile: null,
-        currentView: 'loading',
-        quiz: {
-            questions: [],
-            currentQuestionIndex: 0,
-            score: 0,
-            streak: 0,
-            sessionId: null,
-            timer: null,
-            startTime: null,
-        },
+    // --- START OF SCRIPT ---
+    const state = {
+        idToken: null, webAppUrl: null, userProfile: null, currentView: 'loading',
+        quiz: { questions: [], currentQuestionIndex: 0, score: 0, streak: 0, sessionId: null, timer: null, startTime: null },
     };
-    let views; 
+    let views = {};
 
-    const QUIZ_TIME_LIMIT = 20;
-
-    // --- DOM ELEMENTS (containers) ---
-    const navLinksContainer = document.getElementById('nav-links');
-    const authArea = document.getElementById('auth-area');
-
-    // --- CORE INITIALIZATION ---
-
+    // El nuevo punto de entrada: Se espera a que toda la página cargue.
     window.addEventListener("load", () => {
         console.log("Página cargada, inicializando...");
-        // Pequeño retraso para dar tiempo al script de Google a cargarse completamente
+        
+        // Da un respiro para que el script de Google se inicialice
         setTimeout(() => {
             if (window.google && google.accounts && google.accounts.id) {
                 google.accounts.id.initialize({
-                    client_id: '24633684161-2q1p4rd0ng0d170kkrkjkl3d0svk63kb.apps.googleusercontent.com',
+                    client_id: "24633684161-2q1p4rd0ng0d170kkrkjkl3d0svk63kb.apps.googleusercontent.com",
                     callback: handleCredentialResponse
                 });
                 console.log("Google GSI initialized.");
             } else {
-                console.error("Google GSI script not loaded yet.");
+                console.error("El script de Google GSI no se cargó a tiempo.");
+                alert("No se pudo cargar la autenticación de Google. Refresca la página.");
             }
-            mainApp(); // arranca la aplicación de todas formas
-        }, 500); // 500ms de retraso
+            mainApp(); // Arranca la aplicación principal
+        }, 100); 
     });
 
 
-    // La función principal de nuestra aplicación
     function mainApp() {
-        views = document.querySelectorAll('[data-view]');
-
-        console.log("App initializing...");
+        document.querySelectorAll('[data-view]').forEach(v => { views[v.id.replace('view-', '')] = v; });
         state.webAppUrl = localStorage.getItem('ptvQuizWebAppUrl');
         state.idToken = localStorage.getItem('ptvQuizIdToken');
 
         if (!state.webAppUrl) {
             showView('config');
+        } else if (state.idToken) {
+            handleLoginSuccess();
         } else {
-            if (state.idToken) {
-                handleLoginSuccess();
-            } else {
-                showView('auth');
-                renderGoogleButton();
-            }
+            showView('auth');
+            renderGoogleButton();
         }
         addEventListeners();
     }
@@ -324,32 +301,22 @@
         if (window.google && google.accounts && google.accounts.id) {
             const btnContainer = document.getElementById("google-signin-button");
             if (btnContainer) {
-                google.accounts.id.renderButton(
-                    btnContainer,
-                    { theme: "outline", size: "large" }
-                );
+                google.accounts.id.renderButton(btnContainer, { theme: "outline", size: "large" });
             }
         } else {
-            console.log("Google object not ready for button render, will try again shortly.");
-            setTimeout(renderGoogleButton, 500); // Reintenta si Google no está listo
+            console.warn("Google GSI no está listo para renderizar el botón, reintentando...");
+            setTimeout(renderGoogleButton, 200);
         }
     }
 
     function showView(viewId) {
-        console.log(`Switching to view: ${viewId}`);
-        state.currentView = viewId;
-        views.forEach(view => {
-            if (view.id === `view-${viewId}`) {
-                view.classList.add('view-visible', 'fade-in');
-            } else {
-                view.classList.remove('view-visible');
-            }
-        });
-        updateNavActiveState(viewId);
+        for (const id in views) {
+            views[id].style.display = (id === viewId) ? 'block' : 'none';
+        }
+        if (views[viewId]) views[viewId].classList.add('fade-in');
     }
 
     async function handleCredentialResponse(response) {
-        console.log("Received credential response from Google.");
         state.idToken = response.credential;
         localStorage.setItem('ptvQuizIdToken', state.idToken);
         await handleLoginSuccess();
@@ -358,201 +325,122 @@
     async function handleLoginSuccess() {
         showView('loading');
         try {
-            const profile = await fetchAPI('/me');
-            state.userProfile = profile;
+            const result = await fetchAPI('/me');
+            state.userProfile = result.data;
             updateAuthUI();
-
-            if (!profile || !profile.display_name || !profile.delegacion_code || !profile.codigo_comercial) {
-                console.log("User profile incomplete. Showing profile gate.");
-                document.getElementById('display-name').value = profile?.display_name || '';
-                document.getElementById('codigo-comercial').value = profile?.codigo_comercial || '';
-                document.getElementById('delegacion-code').value = profile?.delegacion_code || '';
+            if (!state.userProfile || !state.userProfile.display_name) {
                 showView('profile');
             } else {
-                console.log("User profile complete. Welcome!");
-                document.getElementById('home-username').textContent = profile.display_name;
+                document.getElementById('home-username').textContent = state.userProfile.display_name;
                 showView('home');
             }
         } catch (error) {
-            console.error("Error fetching user profile:", error);
-            if (error.message.includes('401')) {
-                alert('Error de autenticación. Es posible que no pertenezcas al dominio permitido (@ptvtelecom.com).');
-                logout();
-            } else {
-                alert('Error al contactar con el servidor. Revisa la URL de la Web App en Configuración.');
-                showView('config');
-            }
+            alert(`Error: ${error.message}. Revisa la URL en Configuración.`);
+            localStorage.removeItem('ptvQuizIdToken');
+            showView('config');
         }
     }
-    
-    function updateAuthUI() {
-        navLinksContainer.innerHTML = '';
-        authArea.innerHTML = '';
-        
-        if (state.userProfile) {
-            const links = [
-                { id: 'home', text: 'Inicio' },
-                { id: 'play-start', text: 'Jugar' },
-                { id: 'leaderboard', text: 'Ranking' },
-            ];
-            if (state.userProfile.rol === 'admin' || state.userProfile.rol === 'supervisor') {
-                links.push({ id: 'admin', text: 'Admin' });
-            }
-            links.push({ id: 'config', text: 'Config' });
-            
-            links.forEach(link => {
-                const a = document.createElement('a');
-                a.href = '#';
-                a.dataset.view = link.id;
-                a.textContent = link.text;
-                a.className = 'text-gray-500 hover:bg-gray-100 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium nav-link';
-                a.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    navigateTo(link.id);
-                });
-                navLinksContainer.appendChild(a);
-            });
-            
-            authArea.innerHTML = `
-                <span class="text-sm text-gray-600">${state.userProfile.auth_email}</span>
-                <button id="logout-btn" class="bg-red-500 text-white px-3 py-1 rounded-md text-sm font-medium hover:bg-red-600">Salir</button>
-            `;
-            document.getElementById('logout-btn').addEventListener('click', logout);
-        }
-    }
-    
-    function updateNavActiveState(viewId) {
-        document.querySelectorAll('.nav-link').forEach(link => {
-            if(link.dataset.view === viewId) {
-                link.classList.add('bg-gray-200', 'text-gray-900');
-                link.classList.remove('text-gray-500');
-            } else {
-                link.classList.remove('bg-gray-200', 'text-gray-900');
-                link.classList.add('text-gray-500');
+
+    function addEventListeners() {
+        document.getElementById('config-form').addEventListener('submit', (e) => {
+            e.preventDefault();
+            let url = document.getElementById('web-app-url').value.trim();
+            if (url) {
+                if (!url.endsWith('/exec')) url += (url.endsWith('/') ? '' : '/') + 'exec';
+                localStorage.setItem('ptvQuizWebAppUrl', url);
+                window.location.reload();
             }
         });
-    }
-    
-    async function navigateTo(viewId) {
-        if (viewId === 'leaderboard') {
-            await loadLeaderboard();
-        }
-        showView(viewId);
-    }
-
-    function logout() {
-        console.log("Logging out.");
-        state.idToken = null;
-        state.userProfile = null;
-        localStorage.removeItem('ptvQuizIdToken');
-        google.accounts.id.disableAutoSelect();
-        authArea.innerHTML = '';
-        navLinksContainer.innerHTML = '';
-        showView('auth');
-        renderGoogleButton();
-    }
-
-    // --- API CLIENT ---
-    async function fetchAPI(endpoint, options = {}) {
-        const url = `${state.webAppUrl}?path=${endpoint.substring(1)}`;
-        const headers = {
-            'Content-Type': 'application/json',
-            ...options.headers,
-        };
-        if (state.idToken) {
-            headers['Authorization'] = `Bearer ${state.idToken}`;
-        }
-        const config = {
-            method: options.method || 'GET',
-            headers,
-            body: options.body ? JSON.stringify(options.body) : null,
-            redirect: 'follow',
-            mode: 'cors',
-        };
-        const response = await fetch(url, config);
-        if (!response.ok) {
-            const errorText = await response.text();
-            console.error(`API Error ${response.status}:`, errorText);
-            throw new Error(`API Error ${response.status}: ${errorText}`);
-        }
-        return response.json();
-    }
-
-    // --- EVENT LISTENERS & HANDLERS ---
-    function addEventListeners() {
-        document.getElementById('config-form').addEventListener('submit', handleConfigSave);
         document.getElementById('profile-form').addEventListener('submit', handleProfileSave);
         document.getElementById('start-quiz-btn-home').addEventListener('click', () => showView('play-start'));
         document.getElementById('start-fortalezas-btn').addEventListener('click', () => startQuiz('Fortalezas de PTV'));
         document.getElementById('play-again-btn').addEventListener('click', () => showView('play-start'));
         document.getElementById('view-ranking-btn').addEventListener('click', () => navigateTo('leaderboard'));
-        document.getElementById('import-questions-btn').addEventListener('click', handleImportQuestions);
-    }
-    
-    function handleConfigSave(e) {
-        e.preventDefault();
-        const urlInput = document.getElementById('web-app-url');
-        let url = urlInput.value.trim();
-        if (url) {
-            if (!url.endsWith('exec')) {
-                url += (url.endsWith('/') ? '' : '/') + 'exec';
-            }
-            localStorage.setItem('ptvQuizWebAppUrl', url);
-            window.location.reload();
+        if(document.getElementById('import-questions-btn')) {
+            document.getElementById('import-questions-btn').addEventListener('click', handleImportQuestions);
         }
     }
-    
+
     async function handleProfileSave(e) {
         e.preventDefault();
-        const displayName = document.getElementById('display-name').value;
-        const delegacionCode = document.getElementById('delegacion-code').value;
-        const codigoComercial = document.getElementById('codigo-comercial').value;
-        const errorEl = document.getElementById('profile-error');
-        const validationError = validateDisplayName(displayName);
-        if(validationError) {
-            errorEl.textContent = validationError;
-            errorEl.classList.remove('hidden');
-            return;
-        }
-        errorEl.classList.add('hidden');
         const profileData = {
-            display_name: displayName,
-            delegacion_code: delegacionCode,
-            codigo_comercial: codigoComercial,
+            display_name: document.getElementById('display-name').value,
+            delegacion_code: document.getElementById('delegacion-code').value,
+            codigo_comercial: document.getElementById('codigo-comercial').value,
         };
-        try {
-            showView('loading');
-            const updatedProfile = await fetchAPI('/saveProfile', { method: 'POST', body: profileData });
-            state.userProfile = updatedProfile;
-            await handleLoginSuccess();
-        } catch (error) {
-            alert("Hubo un error al guardar tu perfil.");
-            showView('profile');
+        await fetchAPI('/saveProfile', { method: 'POST', body: profileData });
+        await handleLoginSuccess();
+    }
+    
+    function updateAuthUI() {
+        const navLinksContainer = document.getElementById('nav-links');
+        const authArea = document.getElementById('auth-area');
+        navLinksContainer.innerHTML = '';
+        authArea.innerHTML = '';
+        if (state.userProfile) {
+            let links = [{ id: 'home', text: 'Inicio' }, { id: 'play-start', text: 'Jugar' }, { id: 'leaderboard', text: 'Ranking' }];
+            if (state.userProfile.rol === 'admin' || state.userProfile.rol === 'supervisor') {
+                links.push({ id: 'admin', text: 'Admin' });
+            }
+            links.push({ id: 'config', text: 'Config' });
+            links.forEach(link => {
+                const a = document.createElement('a');
+                a.href = '#'; a.dataset.view = link.id; a.textContent = link.text;
+                a.className = 'text-gray-500 hover:bg-gray-100 px-3 py-2 rounded-md text-sm font-medium nav-link';
+                a.onclick = (e) => { e.preventDefault(); navigateTo(link.id); };
+                navLinksContainer.appendChild(a);
+            });
+            authArea.innerHTML = `<span class="text-sm">${state.userProfile.auth_email}</span><button id="logout-btn" class="bg-red-500 text-white px-3 py-1 rounded-md text-sm hover:bg-red-600">Salir</button>`;
+            document.getElementById('logout-btn').onclick = logout;
         }
     }
     
-    // --- QUIZ LOGIC ---
+    async function navigateTo(viewId) {
+        if(viewId === 'leaderboard') await loadLeaderboard();
+        showView(viewId);
+    }
     
+    function logout() {
+        localStorage.removeItem('ptvQuizIdToken');
+        state.idToken = null;
+        state.userProfile = null;
+        if (window.google) google.accounts.id.disableAutoSelect();
+        window.location.reload();
+    }
+
+    async function fetchAPI(endpoint, options = {}) {
+        const url = `${state.webAppUrl}?path=${endpoint.substring(1)}`;
+        const headers = { 'Content-Type': 'application/json' };
+        if (state.idToken) headers['Authorization'] = `Bearer ${state.idToken}`;
+        const config = { method: options.method || 'GET', headers, body: options.body ? JSON.stringify(options.body) : null, mode: 'cors' };
+        const response = await fetch(url, config);
+        const result = await response.json();
+        if (result.error) throw new Error(result.error);
+        return result;
+    }
+    
+    // --- QUIZ, LEADERBOARD, ADMIN LOGIC ---
+
     async function startQuiz(category) {
         showView('loading');
         try {
-            const allQuestions = await fetchAPI(`/questions?categoria=${encodeURIComponent(category)}`);
+            const result = await fetchAPI(`/questions?categoria=${encodeURIComponent(category)}`);
+            const allQuestions = result.data;
             if (allQuestions.length < 10) {
                 alert('No hay suficientes preguntas en esta categoría.');
-                showView('play-start');
-                return;
+                return showView('play-start');
             }
             state.quiz.questions = allQuestions.sort(() => 0.5 - Math.random()).slice(0, 10);
             state.quiz.currentQuestionIndex = 0;
             state.quiz.score = 0;
             state.quiz.streak = 0;
-            const session = await fetchAPI('/startSession', { method: 'POST', body: { categoria: category }});
-            state.quiz.sessionId = session.session_id;
+            const sessionResult = await fetchAPI('/startSession', { method: 'POST', body: { categoria: category }});
+            state.quiz.sessionId = sessionResult.data.session_id;
             state.quiz.startTime = new Date();
             showView('quiz');
             displayCurrentQuestion();
         } catch (error) {
-            alert("No se pudo iniciar el quiz.");
+            alert("No se pudo iniciar el quiz: " + error.message);
             showView('play-start');
         }
     }
@@ -583,15 +471,16 @@
                 break;
             case 'abierta':
                 const form = document.createElement('form');
+                form.id = 'open-answer-form';
                 form.innerHTML = `
                     <input type="text" id="open-answer-input" class="block w-full px-3 py-2 border border-gray-300 rounded-md" placeholder="Escribe tu respuesta...">
                     <button type="submit" class="mt-3 w-full bg-blue-600 text-white py-2 rounded-md hover:bg-blue-700">Enviar</button>
                 `;
-                form.addEventListener('submit', (e) => {
+                answersContainer.appendChild(form);
+                document.getElementById('open-answer-form').addEventListener('submit', (e) => {
                     e.preventDefault();
                     handleAnswer(-1, document.getElementById('open-answer-input').value.trim());
                 });
-                answersContainer.appendChild(form);
                 document.getElementById('open-answer-input').focus();
                 break;
         }
@@ -604,9 +493,9 @@
         timerBar.style.transition = 'none';
         timerBar.style.width = '100%';
         void timerBar.offsetWidth;
-        timerBar.style.transition = `width ${QUIZ_TIME_LIMIT}s linear`;
+        timerBar.style.transition = `width ${20}s linear`;
         timerBar.style.width = '0%';
-        state.quiz.timer = setTimeout(() => handleAnswer(-1, null, true), QUIZ_TIME_LIMIT * 1000);
+        state.quiz.timer = setTimeout(() => handleAnswer(-1, null, true), 20 * 1000);
     }
 
     async function handleAnswer(selectedIndex, selectedText, isTimeout = false) {
@@ -615,48 +504,39 @@
         const feedbackEl = document.getElementById('answer-feedback');
         let isCorrect = false;
         let points = -60;
-        let newStreak = 0;
         if (!isTimeout) {
-            if (question.tipo === 'abierta') {
-                isCorrect = normalizeText(selectedText) === normalizeText(question.correcta_text);
-            } else {
-                isCorrect = selectedIndex == question.correcta_idx;
-            }
+            isCorrect = (question.tipo === 'abierta')
+                ? (normalizeText(selectedText) === normalizeText(question.correcta_text))
+                : (selectedIndex == question.correcta_idx);
         }
-        if(isCorrect) {
+        if (isCorrect) {
             const timerBonus = Math.floor(50 * (document.getElementById('timer-bar-inner').offsetWidth / document.getElementById('timer-bar').offsetWidth));
-            newStreak = state.quiz.streak + 1;
-            const streakBonus = Math.min(50, newStreak * 10);
+            state.quiz.streak++;
+            const streakBonus = Math.min(50, state.quiz.streak * 10);
             points = 100 + timerBonus + streakBonus;
             state.quiz.score += points;
-            state.quiz.streak = newStreak;
             feedbackEl.textContent = `¡Correcto! +${points} puntos`;
             feedbackEl.className = 'mt-4 text-center font-bold text-green-600';
         } else {
             state.quiz.score += points;
             state.quiz.streak = 0;
-            feedbackEl.textContent = isTimeout ? `¡Tiempo agotado! ${points} puntos` : `Incorrecto. ${points} puntos`;
+            feedbackEl.textContent = isTimeout ? `¡Tiempo agotado! ${points}` : `Incorrecto. ${points}`;
             feedbackEl.className = 'mt-4 text-center font-bold text-red-600';
         }
-        document.querySelectorAll('#answers-container button, #answers-container input').forEach(el => el.disabled = true);
+        document.querySelectorAll('#answers-container button, #answers-container input, #answers-container button[type="submit"]').forEach(el => el.disabled = true);
         document.getElementById('quiz-score').textContent = state.quiz.score;
         document.getElementById('quiz-streak').textContent = `x${state.quiz.streak}`;
+
         try {
             await fetchAPI('/answer', {
                 method: 'POST',
-                body: {
-                    session_id: state.quiz.sessionId,
-                    question_id: question.id,
-                    correcta: isCorrect,
-                    puntos: points,
-                    seleccion_idx: selectedIndex,
-                    respuesta_text: selectedText
-                }
+                body: { session_id: state.quiz.sessionId, question_id: question.id, correcta: isCorrect, puntos: points, seleccion_idx: selectedIndex, respuesta_text: selectedText }
             });
-        } catch (error) { console.error("Failed to save answer:", error); }
+        } catch(e) { console.error("Failed to save answer", e); }
+
         setTimeout(() => {
-            if (state.quiz.currentQuestionIndex < state.quiz.questions.length - 1) {
-                state.quiz.currentQuestionIndex++;
+            state.quiz.currentQuestionIndex++;
+            if (state.quiz.currentQuestionIndex < state.quiz.questions.length) {
                 displayCurrentQuestion();
             } else {
                 endQuiz();
@@ -666,92 +546,77 @@
 
     async function endQuiz() {
         showView('loading');
-        const duration = new Date() - state.quiz.startTime;
         try {
-            await fetchAPI('/endSession', {
-                method: 'POST',
-                body: { session_id: state.quiz.sessionId, score: state.quiz.score, duracion_ms: duration }
-            });
+            await fetchAPI('/endSession', { method: 'POST', body: { session_id: state.quiz.sessionId, score: state.quiz.score, duracion_ms: new Date() - state.quiz.startTime }});
             document.getElementById('final-score').textContent = state.quiz.score;
-            const leaderboardData = await fetchAPI('/leaderboard');
+            const leaderboardResult = await fetchAPI('/leaderboard');
+            const leaderboardData = leaderboardResult.data;
             document.getElementById('end-game-leaderboard').innerHTML = leaderboardData.slice(0, 5).map((entry, index) => `
-                <div class="flex justify-between p-2 ${index % 2 === 0 ? 'bg-gray-50' : ''} rounded">
-                    <span>${index + 1}. ${entry.display_name}</span><span class="font-bold">${entry.total_score}</span>
-                </div>`).join('');
+                <div class="flex justify-between p-2 ${index % 2 === 0 ? 'bg-gray-50' : ''} rounded"><span>${index + 1}. ${entry.display_name}</span><span class="font-bold">${entry.total_score}</span></div>
+            `).join('');
             showView('quiz-end');
-        } catch (error) {
-            alert("Hubo un error al finalizar la partida.");
+        } catch (e) {
+            alert("Error al finalizar la partida: " + e.message);
             showView('home');
         }
     }
-    
+
     async function loadLeaderboard() {
+        showView('loading');
         try {
-            const leaderboardData = await fetchAPI('/leaderboard');
+            const result = await fetchAPI('/leaderboard');
+            const leaderboardData = result.data;
             const tbody = document.getElementById('leaderboard-body');
-            tbody.innerHTML = leaderboardData.length === 0 ? `<tr><td colspan="5" class="text-center p-4">No hay datos.</td></tr>` : 
+            tbody.innerHTML = leaderboardData.length === 0 ? `<tr><td colspan="5" class="text-center p-4">No hay datos.</td></tr>` :
                 leaderboardData.map((entry, index) => `
                 <tr class="${index < 3 ? ['bg-yellow-100', 'bg-gray-200', 'bg-orange-100'][index] : ''}">
                     <td class="px-6 py-4 font-bold">${index + 1}</td><td class="px-6 py-4">${entry.display_name}</td>
                     <td class="px-6 py-4">${entry.delegacion_code}</td><td class="px-6 py-4">${entry.games_played}</td>
                     <td class="px-6 py-4 font-bold">${entry.total_score}</td>
                 </tr>`).join('');
-        } catch (error) {
-            document.getElementById('leaderboard-body').innerHTML = `<tr><td colspan="5" class="text-center text-red-500 p-4">Error al cargar.</td></tr>`;
+            showView('leaderboard');
+        } catch (e) {
+            alert("Error al cargar el ranking: " + e.message);
+            showView('home');
         }
     }
 
     function handleImportQuestions() {
-        showModal('¿Cargar las 100 preguntas de "Fortalezas de PTV"?', async () => {
-            const btn = document.getElementById('import-questions-btn');
+        showModal('¿Cargar las 100 preguntas de "Fortalezas de PTV"? Esto puede añadir duplicados.', async () => {
             const statusEl = document.getElementById('import-status');
-            btn.disabled = true; statusEl.textContent = 'Importando...';
+            statusEl.textContent = 'Importando...';
             try {
                 const result = await fetchAPI('/importAutoFortalezas', { method: 'POST', body: { questionsText: questionsToImport } });
-                statusEl.textContent = `¡Éxito! Importadas ${result.imported} preguntas.`;
-                statusEl.className = 'mt-4 text-center text-green-600';
-            } catch (error) {
-                 statusEl.textContent = `Error: ${error.message}`;
-                 statusEl.className = 'mt-4 text-center text-red-600';
-            } finally {
-                btn.disabled = false;
+                statusEl.textContent = `¡Éxito! Importadas ${result.data.imported} preguntas.`;
+            } catch (e) {
+                statusEl.textContent = `Error: ${e.message}`;
             }
         });
     }
 
-    // --- UTILITY FUNCTIONS ---
-    function validateDisplayName(name) {
-        const normalized = name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-        if (name.length < 2 || name.length > 24) return "El nombre debe tener entre 2 y 24 caracteres.";
-        const blacklist = ["puta","puto","mierda","gilipoll","cabron","pendej","coño","hijoputa","bastard","imbecil","racist","nazi","fascist","maricon","zorra","perra"];
-        if (blacklist.some(word => normalized.includes(word))) return "El nombre contiene palabras no permitidas.";
-        if (normalized.startsWith("ptv") || normalized.includes("zapi")) return "El nombre no puede contener 'PTV' o 'Zapi'.";
-        if (/\d{9,}/.test(name) || /https?:\/\//.test(name) || /@/.test(name)) return "Formato de nombre no válido.";
-        return null;
+    function showModal(body, onConfirm) {
+        const modal = document.getElementById('modal');
+        modal.innerHTML = `
+            <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+                <div class="mt-3 text-center">
+                    <h3 class="text-lg leading-6 font-medium text-gray-900">Confirmación</h3>
+                    <div class="mt-2 px-7 py-3"><p class="text-sm text-gray-500">${body}</p></div>
+                    <div class="items-center px-4 py-3">
+                        <button id="modal-confirm-btn" class="px-4 py-2 bg-red-500 text-white rounded-md w-auto hover:bg-red-700">Confirmar</button>
+                        <button id="modal-cancel-btn" class="px-4 py-2 bg-gray-200 text-gray-900 rounded-md w-auto ml-2 hover:bg-gray-300">Cancelar</button>
+                    </div>
+                </div>
+            </div>`;
+        modal.style.display = 'block';
+        document.getElementById('modal-confirm-btn').onclick = () => { onConfirm(); modal.style.display = 'none'; };
+        document.getElementById('modal-cancel-btn').onclick = () => { modal.style.display = 'none'; };
     }
-    
+
     function normalizeText(text) {
         if (typeof text !== 'string') return '';
         return text.toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g,"");
     }
-
-    function showModal(body, onConfirm) {
-        const modal = document.getElementById('modal');
-        document.getElementById('modal-body').textContent = body;
-        const confirmBtn = document.getElementById('modal-confirm');
-        const cancelBtn = document.getElementById('modal-cancel');
-        const newConfirmBtn = confirmBtn.cloneNode(true);
-        confirmBtn.parentNode.replaceChild(newConfirmBtn, confirmBtn);
-        newConfirmBtn.addEventListener('click', () => { onConfirm(); hideModal(); });
-        const newCancelBtn = cancelBtn.cloneNode(true);
-        cancelBtn.parentNode.replaceChild(newCancelBtn, cancelBtn);
-        newCancelBtn.addEventListener('click', hideModal);
-        modal.classList.remove('hidden');
-    }
-
-    function hideModal() { document.getElementById('modal').classList.add('hidden'); }
-
-    // Hardcoded question block for import
+    
     const questionsToImport = `
 ### **Quiz Completo: Fortalezas y Técnicas de Venta de PTV Telecom**
 
@@ -961,7 +826,7 @@
 91. ¿Qué ventaja ofrece este "peering" a los gamers?
     **Respuesta:** Un "ping" (tiempo de respuesta) más bajo, lo que se traduce en una ventaja competitiva en juegos online.
 92. ¿Qué particularidad se menciona sobre las IPs que utiliza Digi?
-    **Respuesta:** Que en gran parte son IPs rumanas, lo que puede afectar a servicios de geocalización.
+    **Respuesta:** Que en gran parte son IPs rumanas, lo que puede afectar a servicios de geolocalización.
 93. **Verdadero o Falso:** PTV subcontrata a otras empresas para las instalaciones y el mantenimiento técnico.
     **Respuesta:** Falso.
 94. ¿Qué lema resume la filosofía de PTV?
@@ -979,6 +844,43 @@
 100. ¿Cuál es la principal ventaja que un cliente pierde al irse a una compañía low-cost, según el argumentario general?
     **Respuesta:** La tranquilidad y la seguridad de tener un servicio completo y una atención al cliente real y eficaz que resuelve cualquier problema.
 `;
+    
+    // --- FIN DEL BLOQUE DE PREGUNTAS ---
+
+    // --- FUNCIONES DE UTILIDAD (MODAL, NORMALIZACIÓN) ---
+    function showModal(body, onConfirm) {
+        const modal = document.getElementById('modal');
+        modal.innerHTML = `
+            <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+                <div class="mt-3 text-center">
+                    <h3 class="text-lg leading-6 font-medium text-gray-900">Confirmación</h3>
+                    <div class="mt-2 px-7 py-3"><p class="text-sm text-gray-500">${body}</p></div>
+                    <div class="items-center px-4 py-3">
+                        <button id="modal-confirm-btn" class="px-4 py-2 bg-red-500 text-white rounded-md w-auto hover:bg-red-700">Confirmar</button>
+                        <button id="modal-cancel-btn" class="px-4 py-2 bg-gray-200 text-gray-900 rounded-md w-auto ml-2 hover:bg-gray-300">Cancelar</button>
+                    </div>
+                </div>
+            </div>`;
+        modal.style.display = 'block';
+        document.getElementById('modal-confirm-btn').onclick = () => { onConfirm(); modal.style.display = 'none'; };
+        document.getElementById('modal-cancel-btn').onclick = () => { modal.style.display = 'none'; };
+    }
+
+    function normalizeText(text) {
+        if (typeof text !== 'string') return '';
+        return text.toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g,"");
+    }
+
+    function validateDisplayName(name) {
+        const normalized = name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        if (name.length < 2 || name.length > 24) return "El nombre debe tener entre 2 y 24 caracteres.";
+        const blacklist = ["puta","puto","mierda","gilipoll","cabron","pendej","coño","hijoputa","bastard","imbecil","racist","nazi","fascist","maricon","zorra","perra"];
+        if (blacklist.some(word => normalized.includes(word))) return "El nombre contiene palabras no permitidas.";
+        if (normalized.startsWith("ptv") || normalized.includes("zapi")) return "El nombre no puede contener 'PTV' o 'Zapi'.";
+        if (/\d{9,}/.test(name) || /https?:\/\//.test(name) || /@/.test(name)) return "Formato de nombre no válido.";
+        return null;
+    }
+    
     </script>
 </body>
 </html>
